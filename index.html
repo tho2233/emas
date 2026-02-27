@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Simulasi eMAS Pro</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body{margin:0;font-family:Arial;background:#f2f2f2;}
+.header{background:#1e90ff;color:white;padding:20px;}
+.card{background:white;margin:15px;padding:15px;border-radius:10px;}
+button{padding:10px;border:none;border-radius:8px;cursor:pointer;}
+.buy{background:#1e90ff;color:white;}
+.sell{background:#ff4d4d;color:white;}
+input{padding:8px;width:100%;margin-top:5px;}
+.history{max-height:200px;overflow:auto;font-size:14px;}
+.profit{color:#00cc44;font-weight:bold;}
+.loss{color:#ff3333;font-weight:bold;}
+.floating{font-size:16px;margin-top:5px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h2>Simulasi eMAS</h2>
+    <div>Saldo: Rp<span id="balanceText"></span></div>
+    <div>Total Emas: <span id="goldText"></span> gram</div>
+    <div>Harga Saat Ini: Rp<span id="priceText"></span>/gram</div>
+    <div class="floating">Floating: <span id="floatingText"></span></div>
+    <div>Total Aset: Rp<span id="assetText"></span></div>
+</div>
+
+<div class="card">
+    <canvas id="priceChart"></canvas>
+</div>
+
+<div class="card">
+    <h3>Beli Emas</h3>
+    <input type="number" id="buyInput" placeholder="Masukkan nominal Rp">
+    <br><br>
+    <button class="buy" onclick="buyGold()">BELI</button>
+</div>
+
+<div class="card">
+    <h3>Jual Emas</h3>
+    <input type="number" id="sellInput" placeholder="Masukkan gram">
+    <br><br>
+    <button class="sell" onclick="sellGold()">JUAL</button>
+</div>
+
+<div class="card">
+    <h3>Riwayat</h3>
+    <div class="history" id="historyBox"></div>
+</div>
+
+<script>
+
+// ===== DATA =====
+let balance = parseFloat(localStorage.getItem("balance")) || 1000000;
+let gold = parseFloat(localStorage.getItem("gold")) || 0;
+let avgBuyPrice = parseFloat(localStorage.getItem("avgBuyPrice")) || 0;
+let history = JSON.parse(localStorage.getItem("history")) || [];
+let goldPrice = parseFloat(localStorage.getItem("goldPrice")) || 2890000;
+let lastUpdate = parseInt(localStorage.getItem("lastUpdate")) || Date.now();
+let priceHistory = JSON.parse(localStorage.getItem("priceHistory")) || [goldPrice];
+
+// ===== UPDATE HARGA 3 JAM =====
+function updatePriceIfNeeded(){
+    let now = Date.now();
+    let threeHours = 3*60*60*1000;
+
+    if(now - lastUpdate >= threeHours){
+        goldPrice += Math.floor(Math.random()*50000 - 25000);
+        if(goldPrice < 2000000) goldPrice = 2000000;
+
+        priceHistory.push(goldPrice);
+        if(priceHistory.length > 20) priceHistory.shift();
+
+        lastUpdate = now;
+
+        localStorage.setItem("goldPrice", goldPrice);
+        localStorage.setItem("lastUpdate", lastUpdate);
+        localStorage.setItem("priceHistory", JSON.stringify(priceHistory));
+    }
+}
+updatePriceIfNeeded();
+
+// ===== UPDATE UI =====
+function updateUI(){
+
+    let floating = (goldPrice - avgBuyPrice) * gold;
+    let totalAsset = balance + (gold * goldPrice);
+
+    document.getElementById("balanceText").innerText = balance.toLocaleString();
+    document.getElementById("goldText").innerText = gold.toFixed(4);
+    document.getElementById("priceText").innerText = goldPrice.toLocaleString();
+    document.getElementById("assetText").innerText = totalAsset.toLocaleString();
+
+    let floatingText = document.getElementById("floatingText");
+
+    if(gold === 0){
+        floatingText.innerHTML = "-";
+    }else if(floating >= 0){
+        floatingText.innerHTML = "<span class='profit'>+Rp"+floating.toLocaleString()+"</span>";
+    }else{
+        floatingText.innerHTML = "<span class='loss'>Rp"+floating.toLocaleString()+"</span>";
+    }
+
+    let box = document.getElementById("historyBox");
+    box.innerHTML = "";
+    history.slice().reverse().forEach(item=>{
+        let div = document.createElement("div");
+        div.innerHTML = item;
+        box.appendChild(div);
+    });
+
+    localStorage.setItem("balance", balance);
+    localStorage.setItem("gold", gold);
+    localStorage.setItem("avgBuyPrice", avgBuyPrice);
+    localStorage.setItem("history", JSON.stringify(history));
+}
+
+// ===== BELI =====
+function buyGold(){
+    let rupiah = parseFloat(document.getElementById("buyInput").value);
+    if(!rupiah || rupiah <= 0) return alert("Masukkan nominal benar");
+    if(rupiah > balance) return alert("Saldo tidak cukup");
+
+    let gram = rupiah / goldPrice;
+    let totalValue = (avgBuyPrice * gold) + rupiah;
+
+    gold += gram;
+    avgBuyPrice = totalValue / gold;
+    balance -= rupiah;
+
+    history.push("Beli "+gram.toFixed(4)+" gr @Rp"+goldPrice.toLocaleString());
+
+    updateUI();
+    document.getElementById("buyInput").value="";
+}
+
+// ===== JUAL =====
+function sellGold(){
+    let gram = parseFloat(document.getElementById("sellInput").value);
+    if(!gram || gram <= 0) return alert("Masukkan gram benar");
+    if(gram > gold) return alert("Emas tidak cukup");
+
+    let rupiah = gram * goldPrice;
+    let profitLoss = (goldPrice - avgBuyPrice) * gram;
+
+    gold -= gram;
+    balance += rupiah;
+
+    let status = profitLoss >= 0 
+        ? "<span class='profit'>Profit Rp"+profitLoss.toLocaleString()+"</span>"
+        : "<span class='loss'>Loss Rp"+profitLoss.toLocaleString()+"</span>";
+
+    history.push("Jual "+gram.toFixed(4)+" gr @Rp"+goldPrice.toLocaleString()+" | "+status);
+
+    updateUI();
+    document.getElementById("sellInput").value="";
+}
+
+// ===== GRAFIK =====
+const ctx = document.getElementById("priceChart").getContext("2d");
+new Chart(ctx,{
+    type:"line",
+    data:{
+        labels:priceHistory.map((_,i)=>i+1),
+        datasets:[{
+            data:priceHistory,
+            borderColor:"green",
+            fill:false
+        }]
+    },
+    options:{
+        responsive:true,
+        plugins:{legend:{display:false}}
+    }
+});
+
+updateUI();
+
+</script>
+</body>
+</html>
